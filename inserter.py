@@ -3,7 +3,23 @@
 import pyodbc
 from connection import get_connection
 from value_mapping import add_mapping
+import json
+import os
 
+# ------------------------------
+# Load ignore tables from JSON
+# ------------------------------
+def load_ignore_tables():
+    path = os.path.join(os.path.dirname(__file__), "ignore_tables.json")
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            data = json.load(f)
+            return data.get("ignore_tables", [])
+    return []
+
+# ------------------------------
+# Helper functions
+# ------------------------------
 def get_primary_key(cursor, table_name):
     cursor.execute("""
         SELECT COLUMN_NAME
@@ -35,7 +51,13 @@ def get_all_tables(cursor):
     """)
     return [row[0] for row in cursor.fetchall()]
 
-def insert_database(source_db, dest_db, server='localhost'):
+# ------------------------------
+# Main insert function
+# ------------------------------
+def insert_database(source_db, dest_db, server='localhost', ignore_tables=None):
+    if ignore_tables is None:
+        ignore_tables = []
+
     src_conn = get_connection(server, source_db)
     dest_conn = get_connection(server, dest_db)
 
@@ -45,6 +67,10 @@ def insert_database(source_db, dest_db, server='localhost'):
     tables = get_all_tables(src_cursor)
 
     for table_name in tables:
+        if table_name.lower() in [t.lower() for t in ignore_tables]:
+            print(f"Skipping table '{table_name}' because it is in ignore list.\n")
+            continue
+
         print(f"Inserting data from {source_db}.{table_name}")
 
         pk_column = get_primary_key(src_cursor, table_name)
@@ -58,9 +84,7 @@ def insert_database(source_db, dest_db, server='localhost'):
             row_dict = dict(zip(columns, row))
             source_pk_value = row_dict[pk_column]
 
-            # Handle IDENTITY or PK conflicts
             if dest_identity_col:
-                # Remove identity column from insert to let SQL Server auto-generate new ID
                 insert_columns = [c for c in columns if c != dest_identity_col]
                 insert_values = [row_dict[c] for c in insert_columns]
                 placeholders = ','.join(['?'] * len(insert_columns))
@@ -68,11 +92,9 @@ def insert_database(source_db, dest_db, server='localhost'):
 
                 dest_cursor.execute(f"INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})", insert_values)
 
-                # Get the new generated ID
                 dest_cursor.execute("SELECT SCOPE_IDENTITY()")
                 new_id = int(dest_cursor.fetchone()[0])
             else:
-                # No identity, manually generate new ID to avoid duplicates
                 dest_cursor.execute(f"SELECT MAX({pk_column}) FROM {table_name}")
                 max_id = dest_cursor.fetchone()[0] or 0
                 new_id = max_id + 1
@@ -91,7 +113,6 @@ def insert_database(source_db, dest_db, server='localhost'):
             """, (source_db, table_name, pk_column, source_pk_value,
                   dest_db, table_name, pk_column, new_id))
 
-            # Also add mapping in memory
             add_mapping(source_db, table_name, source_pk_value, dest_db, table_name, new_id)
 
         dest_conn.commit()
