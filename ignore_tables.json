@@ -1,5 +1,6 @@
 {
-  "ignore_tables": [
-    "course"
-  ]
+    "ignore_tables": ["course"],       
+    "static_foreign_keys": {
+        "student_enrolled": ["course_id"] 
+    }
 }

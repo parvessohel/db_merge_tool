@@ -2,10 +2,9 @@
 
 from connection import get_connection
 from schema_cloner import clone_schema
-from inserter import insert_database, load_ignore_tables
+from inserter import insert_database, load_config
 from mapping_table import ensure_mapping_table
 import pyodbc
-
 
 def create_database(server, db_name):
     """
@@ -32,7 +31,6 @@ def create_database(server, db_name):
 
     cursor.close()
     conn.close()
-
 
 def main():
     print("Welcome to DB Merge Tool!")
@@ -66,8 +64,8 @@ def main():
     if not dest_db:
         dest_db = default_dest_db
 
-    # Load ignore tables
-    ignore_tables = load_ignore_tables()
+    # Load config (ignore tables + static foreign keys)
+    config = load_config()
 
     # Create destination database
     create_database(server, dest_db)
@@ -89,14 +87,13 @@ def main():
 
     for src_db in source_dbs:
         print(f"Processing source database: {src_db}")
-        insert_database(src_db, dest_db, server, ignore_tables)
+        insert_database(src_db, dest_db, server, config)
         print(f"Data from '{src_db}' merged successfully.\n")
 
     print(
         f"\nMerge completed successfully! "
         f"All data is now in '{dest_db}'."
     )
-
 
 if __name__ == "__main__":
     main()
